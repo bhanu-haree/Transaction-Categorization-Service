@@ -1,0 +1,28 @@
++-------------------+         +-------------------+
+|                   |         |                   |
+|   API Clients     +-------->+   FastAPI Server  |
+| (Web, Mobile, etc)|         |   (app/main.py)   |
++-------------------+         +-------------------+
+                                      |
+                                      v
+                        +-----------------------------+
+                        |   Routes / Business Logic   |
+                        |  (app/routes/, taxonomy.py) |
+                        +-----------------------------+
+                                      |
+                                      v
+                        +-----------------------------+
+                        |      ORM Models (models.py) |
+                        +-----------------------------+
+                                      |
+                                      v
+                        +-----------------------------+
+                        |      Database (app.db)      |
+                        |   SQLite via SQLAlchemy     |
+                        +-----------------------------+
+
+
+1. API clients send requests to FastAPI.
+2. FastAPI routes handle requests, invoke business logic, and interact with ORM models.
+3. ORM models manage data access to the SQLite database.
+4. Logging, configuration, and metrics are handled within the API server and routes.

@@ -1,0 +1,57 @@
+1. Bulk Classification Strategy (/classify/bulk)
+Chunking/Batching: Split very large input lists (e.g., >10k txns) into smaller batches (e.g., 500–1000 per batch) to keep memory bounded.
+Streaming: For extremely large payloads, stream request body parsing and results back (e.g., yield JSONL chunks) instead of buffering everything.
+Async processing: Accept large jobs, enqueue them (Redis/RQ, Celery, Kafka) and return a job ID → client can poll /status/:job_id. Prevents request timeouts.
+
+2. Concurrency Model
+FastAPI/uvicorn async I/O → efficient for DB queries, network I/O.
+CPU-bound classification (regex, NLP, MCC matching) → offload to multiprocessing or a threadpool (concurrent.futures) so it doesn’t block event loop.
+Async workers for DB/API calls.
+Multiprocessing (per core) for heavy regex/tokenization.
+Uvicorn workers: Scale horizontally via --workers=N (N = cores).
+
+3. Backpressure & Timeouts
+Request limits: Cap bulk payload size (e.g., max 20MB / 20k transactions). Reject oversized requests early.
+Batch size cap: e.g., max_batch=1000. Larger → auto-chunk.
+Graceful degradation: Return 202 Accepted with job ID for deferred processing.
+Apply request timeout (e.g., 30s for sync) and circuit breakers (via Tenacity or proxy layer).
+
+4. Parallel I/O (DB Layer)
+Connection pooling: SQLAlchemy connection pool tuned (e.g., 10–20 per worker).
+Avoid N+1: Pre-load merchant/MCC mappings in memory once per worker, not per txn.
+Pagination: Always paginate reads/writes for bulk ops.
+
+5. Caching:
+Merchant + MCC lookup tables cached in Redis or in-process dict.
+Frequently used category rules pre-compiled.
+
+6. Profiling & Complexity
+Hot spots: Regex parsing (O(n * m) where n=txns, m=rules).
+Optimizations:
+Pre-compile regexes once at startup.
+Use trie/dict lookups instead of repeated scans.
+Profiling tools: cProfile, py-spy, line_profiler to find slow regexes/queries.
+First targets: Regex bottlenecks, DB round trips, JSON serialization.
+
+7. Observability
+Metrics to expose (via Prometheus/FastAPI middleware):
+Request throughput (/classify & /classify/bulk).
+Latency: avg, p95, p99 per endpoint.
+Error rates (4xx/5xx split).
+Queue depth (if async job system used).
+Structured logs: Include transaction_id, user_id, latency per request.
+
+8. Testing under load:
+Locust, k6, or wrk to simulate high-volume /classify/bulk.
+Ramp tests (linear load increase) + stress tests (burst traffic).
+Track p95 latency + error rates to detect saturation.
+
+|     Aspect            |   Sync Batch (e.g., POST /classify/bulk with 10k txns)   |   Async Streaming   (e.g., POST /classify/stream with 100k+ txns)           |
+| --------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
+|   Latency (per txn)   | Higher (all txns processed before response)              | Lower (results start flowing as soon as batches are processed)              |
+|   Throughput          | Good for medium payloads (≤10k)                          | Excellent for very large payloads (100k+), avoids memory blowup             |
+|   Memory usage        | Entire batch must fit in memory                          | Bounded (only current batch kept in memory at a time)                       |
+|   Client Experience   | One-shot response, simple client code                    | Incremental results, client must consume stream (JSONL, NDJSON, websockets) |
+|   Failure Handling    | Whole batch may fail or partially succeed (need retries) | Failures isolated to specific chunks; stream can continue                   |
+|   Backpressure        | Harder to enforce; large requests may overwhelm server   | Natural backpressure — results drip-feed, server controls flow              |
+|   Best Use Case       | ≤10k transactions, sync API consumers (web/mobile apps)  | 100k+ transactions, integrations, batch jobs, or ML pipelines               |
