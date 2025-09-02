@@ -1,14 +1,14 @@
-## Bank Transaction Categorization API
+## Transaction Categorization Service
 
-A Python-based API for automatic categorization of bank transactions using merchant data, semantic matching, and rule-based signals.
+A Python-based Service for automatic categorization of transactions using merchant data, semantic matching, and rule-based signals.
 
 ### Features
 
 - **Transaction Classification**: Assigns categories to transactions based on merchant info, MCC codes, and regex rules.
 - **Bulk Classification**: Efficiently processes large batches of transactions.
-- **Merchant & Taxonomy Management**: CRUD endpoints for merchants and category taxonomy.
-- **Observability**: Logging and metrics for throughput, latency, and error rates.
+- **User, Merchant & Transaction Management**: CRUD endpoints for users, merchants and transactions.
 - **Extensible**: Easily add new rules, merchants, or categories.
+- **Taxonomy Support**: Hierarchical category structure for detailed classification. Ideally this should be a learning module from the Transaction/Classification data
 
 ### Tech Stack
 
@@ -50,7 +50,9 @@ A Python-based API for automatic categorization of bank transactions using merch
 - **Classify a transaction**:  
   `POST /classify/` with transaction details.
 - **Bulk classification**:  
-  `POST /classify/bulk` with a list of transactions.
+  `POST /classify/bulk` with a list of transactions in sync manner.
+- **Bulk stream classification**:  
+    `POST /classify/bulk/stream` streams the classification results as they are processed in async manner.
 - **Manage merchants/categories**:  
   Use endpoints in `routes/merchants.py` and `routes/users.py`.
 

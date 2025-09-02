@@ -103,12 +103,12 @@ def pipeline_classify(payload: ClassificationRequest, db: Session):
     # --- MCC map ---
     if payload.mcc and payload.mcc in MCC_CATEGORY_MAP:
         cat = MCC_CATEGORY_MAP[payload.mcc]
-        add_signal(cat, 0.8 * W_RULE, f"MCC {payload.mcc} aligns with {cat}")
+        add_signal(cat, W_RULE, f"MCC {payload.mcc} aligns with {cat}")
 
     # --- Regex rules ---
     for keyword, category, reason in REGEX_RULES:
         if keyword in normalized:
-            add_signal(category, 0.7 * W_RULE, reason)
+            add_signal(category, W_RULE, reason)
 
     # --- Fallback ---
     if not candidates:

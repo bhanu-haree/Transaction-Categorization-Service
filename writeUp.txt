@@ -1,23 +1,7 @@
-During scoring, we add weighted contributions from different signals:
-Merchant KB match → up to W_MERCHANT (0.6)
-Semantic similarity → up to W_SEMANTIC (0.2)
-Regex / MCC rule → up to W_RULE (0.2)
-
-If a category benefits from multiple signals, the raw sum could exceed 1.0.
-Example:
-Merchant alias hit (0.57) + Regex match (0.14) + MCC alignment (0.16) = 0.87.
-If multiple aliases or rules fired, you could even exceed 1.0.
-
-To keep the confidence score bounded between 0 and 1, we normalize by the maximum possible sum of weights:
-0.6 + 0.2 + 0.2 = 1.0.
-This way, if a candidate hits all signals perfectly, confidence = 1.0.
-
-
-
 1. Bulk Classification Strategy (/classify/bulk)
 Optimal solution for handling large payloads:
-a. In order to fetch the txns from DB, it's better to get all the txns in one go instead of fetching them one by one. This can be done using SQLAlchemy's `in_` method to filter txns by a list of IDs.
-b. Further processing can be done in parallel using Python's `concurrent.futures` module. This allows us to utilize multiple CPU cores for CPU-bound tasks like regex matching and NLP processing.
+a. In order to fetch the txns from DB, it's better to get all the txns in one go instead of fetching them one by one. This can be done using SQLAlchemy's 'in_' method to filter txns by a list of IDs.
+b. Further processing can be done in parallel using Python's concurrent.futures. This allows us to utilize multiple CPU cores for CPU-bound tasks like regex matching and NLP processing.
 c. If client needs a sync response, we can process the txns in batches to avoid memory overload. For example, if we have 10,000 txns, we can process them in batches of 1,000.
 d. If client can handle async processing, we can enqueue the job (e.g. Redis) and return a job ID for later retrieval. This prevents request timeouts and allows for more complex processing.
 
@@ -56,7 +40,7 @@ d. Error rates (4xx/5xx split).
 e. Queue depth (if async job system used).
 f. Structured logs: Include transaction_id, user_id, latency per request.
 Testing under load:
-a. Locust, k6 to simulate high-volume /classify/bulk and/or /calssify APIs.
+a. Locust, k6 to simulate high-volume /classify/bulk and/or /classify APIs.
 b. Ramp tests (linear load increase) + stress tests (burst traffic).
 c. Track p95 latency + error rates to detect saturation.
 
