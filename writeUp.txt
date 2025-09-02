@@ -1,50 +1,66 @@
+During scoring, we add weighted contributions from different signals:
+Merchant KB match → up to W_MERCHANT (0.6)
+Semantic similarity → up to W_SEMANTIC (0.2)
+Regex / MCC rule → up to W_RULE (0.2)
+
+If a category benefits from multiple signals, the raw sum could exceed 1.0.
+Example:
+Merchant alias hit (0.57) + Regex match (0.14) + MCC alignment (0.16) = 0.87.
+If multiple aliases or rules fired, you could even exceed 1.0.
+
+To keep the confidence score bounded between 0 and 1, we normalize by the maximum possible sum of weights:
+0.6 + 0.2 + 0.2 = 1.0.
+This way, if a candidate hits all signals perfectly, confidence = 1.0.
+
+
+
 1. Bulk Classification Strategy (/classify/bulk)
-Chunking/Batching: Split very large input lists (e.g., >10k txns) into smaller batches (e.g., 500–1000 per batch) to keep memory bounded.
-Streaming: For extremely large payloads, stream request body parsing and results back (e.g., yield JSONL chunks) instead of buffering everything.
-Async processing: Accept large jobs, enqueue them (Redis/RQ, Celery, Kafka) and return a job ID → client can poll /status/:job_id. Prevents request timeouts.
+Optimal solution for handling large payloads:
+a. In order to fetch the txns from DB, it's better to get all the txns in one go instead of fetching them one by one. This can be done using SQLAlchemy's `in_` method to filter txns by a list of IDs.
+b. Further processing can be done in parallel using Python's `concurrent.futures` module. This allows us to utilize multiple CPU cores for CPU-bound tasks like regex matching and NLP processing.
+c. If client needs a sync response, we can process the txns in batches to avoid memory overload. For example, if we have 10,000 txns, we can process them in batches of 1,000.
+d. If client can handle async processing, we can enqueue the job (e.g. Redis) and return a job ID for later retrieval. This prevents request timeouts and allows for more complex processing.
 
 2. Concurrency Model
-FastAPI/uvicorn async I/O → efficient for DB queries, network I/O.
-CPU-bound classification (regex, NLP, MCC matching) → offload to multiprocessing or a threadpool (concurrent.futures) so it doesn’t block event loop.
-Async workers for DB/API calls.
-Multiprocessing (per core) for heavy regex/tokenization.
-Uvicorn workers: Scale horizontally via --workers=N (N = cores).
+a. asyncio.semaphore to limit concurrent requests, so that event loop isn’t overwhelmed.
+b. CPU-bound classification (regex, NLP, MCC matching) → offload to multiprocessing or a threadpool (concurrent.futures) so it doesn’t block event loop.
+c. Async workers for DB/API calls.
+d. Uvicorn workers: Scale horizontally via --workers=N (N = cores).
 
 3. Backpressure & Timeouts
-Request limits: Cap bulk payload size (e.g., max 20MB / 20k transactions). Reject oversized requests early.
-Batch size cap: e.g., max_batch=1000. Larger → auto-chunk.
-Graceful degradation: Return 202 Accepted with job ID for deferred processing.
-Apply request timeout (e.g., 30s for sync) and circuit breakers (via Tenacity or proxy layer).
+a. Request limits: Cap bulk payload size (e.g., max 20MB / 20k transactions). Reject oversized requests early in case of sync
+b. Batch size cap: e.g., max_batch=1000. Larger → auto-chunk.
+c. Apply request timeout (e.g., 30s for sync) and circuit breakers (via Tenacity or proxy layer).
 
 4. Parallel I/O (DB Layer)
-Connection pooling: SQLAlchemy connection pool tuned (e.g., 10–20 per worker).
-Avoid N+1: Pre-load merchant/MCC mappings in memory once per worker, not per txn.
-Pagination: Always paginate reads/writes for bulk ops.
+a. Connection pooling: SQLAlchemy connection pool tuned (e.g., 10–20 per worker).
+b. Avoid N+1: Pre-load merchant/MCC mappings in memory once per worker, not per txn.
 
 5. Caching:
-Merchant + MCC lookup tables cached in Redis or in-process dict.
-Frequently used category rules pre-compiled.
+a. Store the classification responses in a dict for O(1) access, frequently used category rules pre-compiled.
+b. Merchant + MCC lookup tables cached in Redis or in-process dict.
 
 6. Profiling & Complexity
-Hot spots: Regex parsing (O(n * m) where n=txns, m=rules).
+a. Hot spots: Regex parsing (O(n * m) where n=txns, m=rules).
 Optimizations:
-Pre-compile regexes once at startup.
-Use trie/dict lookups instead of repeated scans.
-Profiling tools: cProfile, py-spy, line_profiler to find slow regexes/queries.
-First targets: Regex bottlenecks, DB round trips, JSON serialization.
+a. Pre-compile regexes once at startup.
+b. Use trie/dict lookups instead of repeated scans. Store the classification responses in a dict for O(1) access.
+c. Profiling tools: cProfile, py-spy, line_profiler to find slow regexes/queries.
+d. First targets: Regex bottlenecks, DB round trips, JSON serialization.
 
 7. Observability
-Metrics to expose (via Prometheus/FastAPI middleware):
-Request throughput (/classify & /classify/bulk).
-Latency: avg, p95, p99 per endpoint.
-Error rates (4xx/5xx split).
-Queue depth (if async job system used).
-Structured logs: Include transaction_id, user_id, latency per request.
+a. Metrics to expose (via Prometheus/FastAPI middleware):
+b. Request throughput (/classify & /classify/bulk).
+c. Latency: avg, p95, p99 per endpoint.
+d. Error rates (4xx/5xx split).
+e. Queue depth (if async job system used).
+f. Structured logs: Include transaction_id, user_id, latency per request.
+Testing under load:
+a. Locust, k6 to simulate high-volume /classify/bulk and/or /calssify APIs.
+b. Ramp tests (linear load increase) + stress tests (burst traffic).
+c. Track p95 latency + error rates to detect saturation.
 
-8. Testing under load:
-Locust, k6, or wrk to simulate high-volume /classify/bulk.
-Ramp tests (linear load increase) + stress tests (burst traffic).
-Track p95 latency + error rates to detect saturation.
+Sync Batch vs Async Streaming TradeOffs
 
 |     Aspect            |   Sync Batch (e.g., POST /classify/bulk with 10k txns)   |   Async Streaming   (e.g., POST /classify/stream with 100k+ txns)           |
 | --------------------- | -------------------------------------------------------- | --------------------------------------------------------------------------- |
@@ -54,4 +70,4 @@ Track p95 latency + error rates to detect saturation.
 |   Client Experience   | One-shot response, simple client code                    | Incremental results, client must consume stream (JSONL, NDJSON, websockets) |
 |   Failure Handling    | Whole batch may fail or partially succeed (need retries) | Failures isolated to specific chunks; stream can continue                   |
 |   Backpressure        | Harder to enforce; large requests may overwhelm server   | Natural backpressure — results drip-feed, server controls flow              |
-|   Best Use Case       | ≤10k transactions, sync API consumers (web/mobile apps)  | 100k+ transactions, integrations, batch jobs, or ML pipelines               |
+|   Best Use Case       | ≤10k transactions, sync API consumers (web/mobile apps)  | 100k+ transactions, integrations, batch jobs, pipelines                     |

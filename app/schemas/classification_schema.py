@@ -25,3 +25,6 @@ class ClassificationResult(BaseModel):
     confidence: float
     why: List[str]
     alternatives: List[AlternativeCategory] = []
+
+class BulkClassificationRequest(BaseModel):
+    transactions: List[ClassificationRequest]

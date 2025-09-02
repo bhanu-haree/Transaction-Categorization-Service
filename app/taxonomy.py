@@ -1,5 +1,3 @@
-# app/taxonomy.py
-
 MCC_CATEGORY_MAP = {
     # Shopping
     "5942": "Shopping > Online Marketplace",

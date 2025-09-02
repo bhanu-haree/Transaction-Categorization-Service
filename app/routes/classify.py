@@ -1,8 +1,12 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from select import select
 from typing import List, Dict
 
 from fastapi import APIRouter, Depends
+from pydantic import json
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
+from starlette.responses import StreamingResponse
 
 from app.schemas.classification_schema import ClassificationRequest, ClassificationResult
 from app.db.db import get_db
@@ -67,34 +71,35 @@ def pipeline_classify(payload: ClassificationRequest, db: Session):
 
     # --- Merchant KB ---
     merchant = db.get(MerchantORM, payload.merchant_id)
+    merchant_matched = False
     if merchant:
-        if merchant.default_category:
-            # 0.9 weight for exact merchant match
+        if merchant.default_category and merchant.default_category.lower() in normalized:
             add_signal(
                 merchant.default_category,
-                0.9 * W_MERCHANT,
+                W_MERCHANT,
                 f"Default category from merchant: {merchant.default_category}"
             )
+            merchant_matched = True
 
         for alias in (merchant.aliases or []):
-            if alias.lower() in normalized:
-                # 0.95 weight for alias substring match, alias has more weightage than category match
+            if alias.lower() in normalized and not merchant_matched:
                 add_signal(
                     merchant.default_category or "Uncategorized",
-                    0.95 * W_MERCHANT,
+                    W_MERCHANT,
                     f"Matched alias '{alias}' → {merchant.display_name}"
                 )
+                merchant_matched = True
 
-        # --- Semantic similarity ---
-        all_names = [merchant.display_name] + (merchant.aliases or [])
-        match = semantic_similarity(normalized, all_names)
-        if match:
-            best_alias, sim_score = match
-            add_signal(
-                merchant.default_category or "Uncategorized",
-                sim_score * W_SEMANTIC,
-                f"Semantic similarity {sim_score:.2f} with '{best_alias}'"
-            )
+    # --- Semantic similarity ---
+    all_names = [merchant.display_name] + (merchant.aliases or [])
+    match = semantic_similarity(normalized, all_names)
+    if match:
+        best_alias, sim_score = match
+        add_signal(
+            merchant.default_category or "Uncategorized",
+            sim_score * W_SEMANTIC,
+            f"Semantic similarity {sim_score:.2f} with '{best_alias}'"
+        )
     # --- MCC map ---
     if payload.mcc and payload.mcc in MCC_CATEGORY_MAP:
         cat = MCC_CATEGORY_MAP[payload.mcc]
@@ -120,7 +125,7 @@ def pipeline_classify(payload: ClassificationRequest, db: Session):
     max_possible_score = W_MERCHANT + W_SEMANTIC + W_RULE
     for category in candidates:
         candidates[category]["score"] = min(
-            candidates[category]["score"] / max_possible_score, 1.0
+            candidates[category]["score"], 1.0
         )
 
     # --- Re-ranking ---
@@ -160,7 +165,58 @@ def classify_transaction(payload: ClassificationRequest, db: Session = Depends(g
     return pipeline_classify(payload, db)
 
 @router.post("/bulk", response_model=List[ClassificationResult])
-# TODO: Need to add pagination or limit or batch for concurrency
 def classify_bulk(transactions: List[ClassificationRequest], db: Session = Depends(get_db)):
     logger.info(f"Received bulk classification request for {len(transactions)} transactions")
-    return [pipeline_classify(txn, db) for txn in transactions]
+    txn_ids = [txn.id for txn in transactions if txn.id]
+    # Fetch all relevant transactions in one query
+    db_txns = db.execute(
+        select(TransactionORM).where(TransactionORM.id.in_(txn_ids))
+    ).scalars().all()
+    txn_map = {txn.id: txn for txn in db_txns}
+
+    def classify(txn_req: ClassificationRequest):
+        # Fill missing fields from db_txn if available
+        db_txn = txn_map.get(txn_req.id)
+        if db_txn:
+            data = txn_req.dict()
+            for field, value in data.items():
+                if (value is None or value == "") and hasattr(db_txn, field):
+                    data[field] = getattr(db_txn, field)
+            txn_req = ClassificationRequest(**data)
+        return pipeline_classify(txn_req, db)
+
+    # Parallel processing
+    results = []
+    with ThreadPoolExecutor() as executor:
+        future_to_txn = {executor.submit(classify, txn): txn for txn in transactions}
+        for future in as_completed(future_to_txn):
+            results.append(future.result())
+    return results
+
+@router.post("/bulk/stream")
+def classify_bulk_stream(transactions: List[ClassificationRequest], db: Session = Depends(get_db)):
+    logger.info(f"Received bulk stream classification request for {len(transactions)} transactions")
+    txn_ids = [txn.id for txn in transactions if txn.id]
+    db_txns = db.execute(
+        select(TransactionORM).where(TransactionORM.id.in_(txn_ids))
+    ).scalars().all()
+    txn_map = {txn.id: txn for txn in db_txns}
+
+    def classify(txn_req: ClassificationRequest):
+        db_txn = txn_map.get(txn_req.id)
+        if db_txn:
+            data = txn_req.dict()
+            for field, value in data.items():
+                if (value is None or value == "") and hasattr(db_txn, field):
+                    data[field] = getattr(db_txn, field)
+            txn_req = ClassificationRequest(**data)
+        return pipeline_classify(txn_req, db)
+
+    def result_generator():
+        with ThreadPoolExecutor() as executor:
+            future_to_txn = {executor.submit(classify, txn): txn for txn in transactions}
+            for future in as_completed(future_to_txn):
+                result = future.result()
+                yield json.dumps(result.model_dump()) + "\n"
+
+    return StreamingResponse(result_generator(), media_type="application/json")
