@@ -5,10 +5,10 @@ from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException
 
 from app.db.db import engine, Base, get_db
-from app.routes.users import router as users_router
-from app.routes.merchants import router as merchants_router
-from app.routes.transactions import router as transactions_router
-from app.routes.classify import router as classification_router
+from app.routes.users_route import router as users_router
+from app.routes.merchants_route import router as merchants_router
+from app.routes.transactions_route import router as transactions_router
+from app.routes.classify_route import router as classification_router
 import logging
 
 logging.basicConfig(

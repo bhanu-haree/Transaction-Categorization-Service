@@ -22,7 +22,6 @@ class MerchantORM(Base):
 
 class TransactionORM(Base):
     __tablename__ = "transactions"
-
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, ForeignKey("users.user_id"), nullable=False)
     merchant_id = Column(String, ForeignKey("merchants.merchant_id"), nullable=False)
