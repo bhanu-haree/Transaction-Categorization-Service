@@ -33,7 +33,7 @@ A FastAPI-based microservice for automatic categorization of bank transactions u
 2. **Create a virtualenvironment:**
    ```bash
    python -m venv venv
-   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   source venv/bin/activate  # On Windows use `venv\Scripts\activate` if this step fails, please ignore and proceed to next step.
    ``` 
    
 3. **Install dependencies:**
@@ -43,7 +43,9 @@ A FastAPI-based microservice for automatic categorization of bank transactions u
 
 4. **Run the server:**
    ```bash
-   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+   python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
+   OR
+   uvicorn main:app --reload --host 127.0.0.1 --port 8000
    ```
 
 5. **Open API docs:**  
@@ -100,7 +102,7 @@ Content-Type: application/json
     "currency": "USD",
     "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
     "mcc": "5399"
-  }
+}
 ```
 
 ---

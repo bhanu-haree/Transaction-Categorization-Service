@@ -26,12 +26,13 @@ router = APIRouter(prefix="/classify", tags=["classification"])
 @router.post("/", response_model=ClassificationResult)
 def classify_transaction(payload: ClassificationRequest = Body(..., description="Transaction to classify",
    example={
-       "id": "txn_123",
-       "amount": 100.5,
+       "id": "txn_test_multi3",
+       "user_id": "user_42",
+       "merchant_id": "m_store",
+       "amount": 45.00,
        "currency": "USD",
-       "merchant": "Amazon",
-       "posted_at": "2024-06-01T12:00:00Z",
-       "category": None
+       "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
+       "mcc": "5399"
    }),
     db: Session = Depends(get_db)):
         validate_transaction(payload, db, payload.id, TransactionORM)
@@ -45,20 +46,22 @@ def classify_bulk(transactions: List[ClassificationRequest] = Body(
     description="List of transactions to classify (max 1000)",
     example=[
         {
-            "id": "txn_123",
-            "amount": 100.5,
+            "id": "txn_test_multi3",
+            "user_id": "user_42",
+            "merchant_id": "m_store",
+            "amount": 45.00,
             "currency": "USD",
-            "merchant": "Amazon",
-            "posted_at": "2024-06-01T12:00:00Z",
-            "category": None
+            "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
+            "mcc": "5399"
         },
         {
-            "id": "txn_124",
-            "amount": 50.0,
+            "id": "txn_test_multi4",
+            "user_id": "user_42",
+            "merchant_id": "m_store",
+            "amount": 45.00,
             "currency": "USD",
-            "merchant": "Starbucks",
-            "posted_at": "2024-06-02T09:30:00Z",
-            "category": None
+            "raw_description": "WALMART STARBUCKS UBER MONTHLY FEE",
+            "mcc": "5812"
         }
     ]
 ),
@@ -90,7 +93,32 @@ db: Session = Depends(get_db)):
 
 @router.post("/classify/bulk/stream")
 def classify_bulk_stream(
-        requests: List[ClassificationRequest],
+        requests: List[ClassificationRequest] = Body(
+            ...,
+            min_items=1,
+            max_items=1000,
+            description="List of transactions to classify (max 1000)",
+            example=[
+                {
+                    "id": "txn_test_multi3",
+                    "user_id": "user_42",
+                    "merchant_id": "m_store",
+                    "amount": 45.00,
+                    "currency": "USD",
+                    "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
+                    "mcc": "5399"
+                },
+                {
+                    "id": "txn_test_multi4",
+                    "user_id": "user_42",
+                    "merchant_id": "m_store",
+                    "amount": 45.00,
+                    "currency": "USD",
+                    "raw_description": "WALMART STARBUCKS UBER MONTHLY FEE",
+                    "mcc": "5812"
+                }
+            ]
+        ),
         db: Session = Depends(get_db)
 ):
     logger.info(f"Received bulk stream classification request for {len(requests)} transactions")
