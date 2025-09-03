@@ -10,14 +10,15 @@ from app.models import UserORM, TransactionORM
 from app.schemas.user_schema import UserCreate, UserUpdate
 from app.services.transaction_service import delete_transaction_cascade
 
-from app.validators.user_validator import validate_user_id, validate_limit_offset, validate_sort, validate_user
+from app.validators.user_validator import validate_user_id, validate_limit_offset, validate_sort, validate_user_create, \
+    validate_user_update
 import logging
 
 logger = logging.getLogger(__name__)
 
 def create_user_service(payload: UserCreate, db: Session):
     logger.info(f"Creating user: {payload.user_id}")
-    validate_user(payload, db)
+    validate_user_create(payload, db)
     existing = db.get(UserORM, payload.user_id)
     if existing:
         logger.warning(f"User ID already exists: {payload.user_id}")
@@ -54,7 +55,7 @@ def get_user_service(user_id: str, db: Session):
 
 def update_user_service(user_id: str, payload: UserUpdate, db: Session):
     logger.info(f"Updating user: {user_id}")
-    validate_user(payload, db)
+    validate_user_update(payload, db)
     user = db.get(UserORM, user_id)
     if not user:
         logger.warning(f"User not found for update: {user_id}")

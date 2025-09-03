@@ -1,78 +1,211 @@
-## Transaction Categorization Service
+# Bank Transaction Categorization Service
 
-A Python-based Service for automatic categorization of transactions using merchant data, semantic matching, and rule-based signals.
+A FastAPI-based microservice for automatic categorization of bank transactions using merchant knowledge base, MCC codes, regex rules, and semantic similarity.
 
-### Features
+## Features
 
-- **Transaction Classification**: Assigns categories to transactions based on merchant info, MCC codes, and regex rules.
-- **Bulk Classification**: Efficiently processes large batches of transactions.
-- **User, Merchant & Transaction Management**: CRUD endpoints for users, merchants and transactions.
-- **Extensible**: Easily add new rules, merchants, or categories.
-- **Taxonomy Support**: Hierarchical category structure for detailed classification. Ideally this should be a learning module from the Transaction/Classification data
+- Transaction classification via `/classify` and `/classify/bulk`
+- Merchant, MCC, and regex-based enrichment
+- Weighted scoring and explainable output
+- Bulk and streaming classification for high throughput
+- CRUD APIs for users, merchants, and transactions
 
-### Tech Stack
+## API Endpoints
 
-- **Python 3.12**
-- **FastAPI** (API framework)
-- **SQLAlchemy** (ORM)
-- **SQLite** (default DB, see `app.db`)
-- **Uvicorn** (ASGI server)
+- `POST /classify` — Classify a single transaction
+- `POST /classify/bulk` — Classify multiple transactions in parallel (batch mode)
+- `POST /classify/bulk/stream` — Stream classification results for large batches
+- `GET /transactions` — List transactions (filter, sort, paginate)
+- `POST /transactions` — Create a transaction
+- `GET /merchants` — List merchants (filter, paginate)
+- `POST /merchants` — Create a merchant
+- `GET /users` — List users (filter, paginate)
+- `POST /users` — Create a user
+- `GET /health` — Health check
 
-### Directory Structure
+## Quickstart
 
-- `app/`
-    - `main.py`: FastAPI app entry point
-    - `models.py`: ORM models
-    - `taxonomy.py`: Category taxonomy logic
-    - `db/`: DB setup and seed data
-    - `routes/`: API endpoints (`classify.py`, `merchants.py`, etc.)
-    - `schemas/`: Pydantic schemas for request/response validation
-
-### Setup
-
-1. **Install dependencies**
+1. **Clone the repo:**
+   ```bash
+   git clone https://github.com/<your-username>/Transaction-Categorization-Service.git
+   cd Transaction-Categorization-Service
+   ```
+2. **Create a virtualenvironment:**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+   ``` 
+   
+3. **Install dependencies:**
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **Run DB seed (optional)**
+4. **Run the server:**
    ```bash
-   python app/db/seed_data.py
+   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
    ```
 
-3. **Start the API server**
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+5. **Open API docs:**  
+   Visit [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
 
-### Usage
+6. **DB is pre-loaded with sample data.** 
+    If more data is needed, need to call `POST /transaction`,`POST /merchants` and `POST /users` endpoints.
+---
 
-- **Classify a transaction**:  
-  `POST /classify/` with transaction details.
-- **Bulk classification**:  
-  `POST /classify/bulk` with a list of transactions in sync manner.
-- **Bulk stream classification**:  
-    `POST /classify/bulk/stream` streams the classification results as they are processed in async manner.
-- **Manage merchants/categories**:  
-  Use endpoints in `routes/merchants.py` and `routes/users.py`.
+## 🗺️ Classification Flow
 
-### OpenAPI & Interactive Docs
-- OpenAPI Spec: All endpoints are automatically documented using OpenAPI (Swagger) via FastAPI.
-- Interactive Documentation:
-- Access Swagger UI at http://127.0.0.1:8000/docs#/
-- Usage:
-- Explore, test, and view request/response schemas directly in the browser.
-- OpenAPI spec is available at /openapi.json for integration and tooling.
+```mermaid
+flowchart TD
+    A[Start: Transaction Input] --> B[Normalize Description]
+    B --> C{Merchant Found?}
+    
+    C -- Yes --> D[Check Default Category / Aliases]
+    C -- No --> E[Skip Merchant Match]
 
-### Configuration
+    D --> F[Semantic Similarity (Merchant Names + Aliases)]
+    E --> F
 
-- **Weights & Multipliers**:  
-  Fine-tune classification by adjusting parameters in `routes/classify.py`.
-- **Logging**:  
-  Logs are output to console; configure in `routes/classify.py`.
+    F --> G{MCC Present?}
+    G -- Yes --> H[Map MCC → Category]
+    G -- No --> I[Skip MCC]
 
-### License
+    H --> J[Regex Rules Matching]
+    I --> J
 
-For educational/demo use only. See assignment PDF for details.
+    J --> K{Any Signals Collected?}
+    K -- No --> L[Category = Uncategorized | Confidence=0.5]
+    K -- Yes --> M[Normalize Scores (0.0 - 1.0)]
+
+    M --> N[Pick Best Category]
+    N --> O[Rank Alternatives]
+    O --> P[Return Classification Result ✅]
+
+----> Q[End]
+```
+
+## 📂 Example Requests
+
+### 🔹 Single Transaction Classification
+**Request**
+```http
+POST /classify
+Content-Type: application/json
+
+{
+    "id": "txn_test_multi3",
+    "user_id": "user_42",
+    "merchant_id": "m_store",
+    "amount": 45.00,
+    "currency": "USD",
+    "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
+    "mcc": "5399"
+  }
+```
 
 ---
+
+### 🔹 Bulk Classification (Batch Mode)
+**Request**
+```http
+POST /classify/bulk
+Content-Type: application/json
+
+[
+  {
+    "id": "txn_test_multi3",
+    "user_id": "user_42",
+    "merchant_id": "m_store",
+    "amount": 45.00,
+    "currency": "USD",
+    "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
+    "mcc": "5399"
+  },
+  {
+    "id": "txn_test_multi4",
+    "user_id": "user_42",
+    "merchant_id": "m_store",
+    "amount": 45.00,
+    "currency": "USD",
+    "raw_description": "WALMART STARBUCKS UBER MONTHLY FEE",
+    "mcc": "5812"
+  }
+]
+```
+
+**Response**
+```json
+[
+  {
+    "transaction_id": "txn_test_multi3",
+    "category": "Fees & Charges > Bank Fee",
+    "confidence": 0.4,
+    "why": ["Regex rule: 'monthly fee'", "Regex rule: 'charge'"],
+    "alternatives": [
+      {"category": "Food & Drink > Coffee Shop", "confidence": 0.2},
+      {"category": "Shopping > General Retail", "confidence": 0.2}
+    ]
+  },
+  {
+    "transaction_id": "txn_test_multi4",
+    "category": "Food & Drink > Restaurant",
+    "confidence": 0.2,
+    "why": ["MCC 5812 aligns with Food & Drink > Restaurant"],
+    "alternatives": [
+      {"category": "Transport > Rideshare", "confidence": 0.2},
+      {"category": "Food & Drink > Coffee Shop", "confidence": 0.2},
+      {"category": "Shopping > General Retail", "confidence": 0.2},
+      {"category": "Fees & Charges > Bank Fee", "confidence": 0.2}
+    ]
+  }
+]
+```
+
+---
+
+### 🔹 Bulk Classification (Streaming Mode)
+**Request**
+```http
+POST /classify/bulk/stream
+Content-Type: application/json
+
+[
+  {
+    "id": "txn_test_multi3",
+    "user_id": "user_42",
+    "merchant_id": "m_store",
+    "amount": 45.00,
+    "currency": "USD",
+    "raw_description": "WALMART STARBUCKS MONTHLY FEE CHARGE",
+    "mcc": "5399"
+  },
+  {
+    "id": "txn_test_multi4",
+    "user_id": "user_42",
+    "merchant_id": "m_store",
+    "amount": 45.00,
+    "currency": "USD",
+    "raw_description": "WALMART STARBUCKS UBER MONTHLY FEE",
+    "mcc": "5812"
+  }
+]
+```
+
+**Response (NDJSON stream)**
+```json
+{"transaction_id": "txn_test_multi3", "category": "Fees & Charges > Bank Fee", "confidence": 0.4, "why": ["Regex rule: 'monthly fee'", "Regex rule: 'charge'"], "alternatives": [{"category": "Food & Drink > Coffee Shop", "confidence": 0.2}, {"category": "Shopping > General Retail", "confidence": 0.2}]}
+{"transaction_id": "txn_test_multi4", "category": "Food & Drink > Restaurant", "confidence": 0.2, "why": ["MCC 5812 aligns with Food & Drink > Restaurant"], "alternatives": [{"category": "Transport > Rideshare", "confidence": 0.2}, {"category": "Food & Drink > Coffee Shop", "confidence": 0.2}, {"category": "Shopping > General Retail", "confidence": 0.2}, {"category": "Fees & Charges > Bank Fee", "confidence": 0.2}]}
+```
+
+---
+
+## 🚀 Scaling Notes
+
+- **Batch mode** (`/bulk`) for smaller payloads (≤ 1k txns).
+- **Streaming mode** (`/bulk/stream`) for very large inputs (100k+ txns).
+- SQLAlchemy bulk `in_` query prevents N+1 lookups.
+- Parallel classification using `concurrent.futures` for CPU-bound tasks.
+- Observability with latency, throughput, error rate metrics.
+
+---
+

@@ -18,10 +18,11 @@ router = APIRouter(prefix="/users", tags=["users"])
 @router.post("/", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(
         payload: UserCreate = Body(..., example={
+            # -- This should be matching with TXN in DB
             "user_id": "u_123",
             "name": "John Doe",
             "email": "john@example.com",
-            "password": "strongpassword"
+            "password": "strongpassword123"
         }),
         db: Session = Depends(get_db)
 ):

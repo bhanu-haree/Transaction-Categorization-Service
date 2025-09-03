@@ -21,16 +21,16 @@ class PaginatedTransactions(BaseModel):
     items: List[TransactionOut]
 
 def create_transaction_service(payload: TransactionCreate, db: Session) -> TransactionOut:
-    logger.info(f"Creating transaction: {payload.transaction_id}")
+    logger.info(f"Creating transaction: {payload.id}")
     validate_transaction_create(db, payload)
     transaction = TransactionORM(**payload.dict())
     db.add(transaction)
     try:
         db.commit()
-        logger.info(f"Transaction created: {transaction.transaction_id}")
+        logger.info(f"Transaction created: {transaction.id}")
     except SQLAlchemyError:
         db.rollback()
-        logger.error(f"Database error during transaction creation: {payload.transaction_id}")
+        logger.error(f"Database error during transaction creation: {payload.id}")
         raise HTTPException(status_code=500, detail="Database error during creation")
     db.refresh(transaction)
     return transaction

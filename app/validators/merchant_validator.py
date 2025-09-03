@@ -12,7 +12,7 @@ def validate_merchant_id(merchant_id: str):
         raise HTTPException(status_code=422, detail="Invalid merchant_id")
 
 def validate_merchant_payload(payload: MerchantCreate):
-    if not payload.name or not payload.merchant_id:
-        logger.error(f"Missing required fields in merchant payload: merchant_id={payload.merchant_id}, name={payload.name}")
+    if not payload.display_name or not payload.merchant_id:
+        logger.error(f"Missing required fields in merchant payload: merchant_id={payload.merchant_id}, name={payload.display_name}")
         raise HTTPException(status_code=422, detail="Missing required fields")
     validate_merchant_id(payload.merchant_id)

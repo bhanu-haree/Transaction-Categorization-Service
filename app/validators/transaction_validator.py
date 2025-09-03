@@ -6,8 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 def validate_transaction_create(db, payload):
-    if db.get(TransactionORM, payload.transaction_id):
-        logger.warning(f"Transaction ID already exists: {payload.transaction_id}")
+    if db.get(TransactionORM, payload.id):
+        logger.warning(f"Transaction ID already exists: {payload.id}")
         raise HTTPException(status_code=409, detail="transaction_id already exists")
     if not db.get(UserORM, payload.user_id):
         logger.warning(f"user_id does not exist: {payload.user_id}")
