@@ -39,9 +39,7 @@ def semantic_similarity(desc: str, candidates: List[str], threshold: float = 0.8
         return best, best_score
     return None
 
-logger = logging.getLogger("ClassificationService-Pipeline")
-
-def pipeline_classify(payload: ClassificationRequest, db: Session):
+def pipeline_classify_service(payload: ClassificationRequest, db: Session):
     try:
         logger.info(f"Classifying transaction {payload.id} (merchant_id={payload.merchant_id}, mcc={payload.mcc})")
         normalized = normalize_description(payload.raw_description)

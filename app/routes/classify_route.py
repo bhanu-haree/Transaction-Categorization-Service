@@ -9,7 +9,7 @@ from starlette.responses import StreamingResponse
 
 from app.schemas.classification_schema import ClassificationRequest, ClassificationResult
 from app.db.db import get_db
-from app.services.classification_service import pipeline_classify
+from app.services.classification_service import pipeline_classify_service
 from app.models import TransactionORM
 from app.validators.classification_validator import validate_transaction
 import logging
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/classify", tags=["classification"])
 @router.post("/", response_model=ClassificationResult)
 def classify_transaction(payload: ClassificationRequest, db: Session = Depends(get_db)):
     validate_transaction(payload, db, payload.id, TransactionORM)
-    return pipeline_classify(payload, db)
+    return pipeline_classify_service(payload, db)
 
 @router.post("/bulk", response_model=List[ClassificationResult])
 def classify_bulk(transactions: List[ClassificationRequest], db: Session = Depends(get_db)):
@@ -49,7 +49,7 @@ def classify_bulk(transactions: List[ClassificationRequest], db: Session = Depen
                 if (value is None or value == "") and hasattr(db_txn, field):
                     data[field] = getattr(db_txn, field)
             txn_req = ClassificationRequest(**data)
-        return pipeline_classify(txn_req, db)
+        return pipeline_classify_service(txn_req, db)
 
     # Parallel processing
     results = []
@@ -76,7 +76,7 @@ def classify_bulk_stream(transactions: List[ClassificationRequest], db: Session 
                 if (value is None or value == "") and hasattr(db_txn, field):
                     data[field] = getattr(db_txn, field)
             txn_req = ClassificationRequest(**data)
-        return pipeline_classify(txn_req, db)
+        return pipeline_classify_service(txn_req, db)
 
     def result_generator():
         with ThreadPoolExecutor() as executor:

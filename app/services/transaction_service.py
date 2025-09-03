@@ -1,12 +1,18 @@
+import logging
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, asc, desc
+from sqlalchemy.exc import SQLAlchemyError
 from typing import Optional, List
 from datetime import datetime
 
 from app.models import TransactionORM, UserORM, MerchantORM
 from app.schemas.transaction_schema import TransactionOut, TransactionCreate, TransactionUpdate
 from pydantic import BaseModel
+
+from app.validators.transaction_validator import validate_transaction_create, validate_transaction_update
+
+logger = logging.getLogger(__name__)
 
 class PaginatedTransactions(BaseModel):
     total_count: int
@@ -15,44 +21,60 @@ class PaginatedTransactions(BaseModel):
     items: List[TransactionOut]
 
 def create_transaction_service(payload: TransactionCreate, db: Session) -> TransactionOut:
-    if db.get(TransactionORM, payload.transaction_id):
-        raise HTTPException(status_code=409, detail="transaction_id already exists")
-    if not db.get(UserORM, payload.user_id):
-        raise HTTPException(status_code=404, detail="user_id does not exist")
-    if not db.get(MerchantORM, payload.merchant_id):
-        raise HTTPException(status_code=404, detail="merchant_id does not exist")
+    logger.info(f"Creating transaction: {payload.transaction_id}")
+    validate_transaction_create(db, payload)
     transaction = TransactionORM(**payload.dict())
     db.add(transaction)
-    db.commit()
+    try:
+        db.commit()
+        logger.info(f"Transaction created: {transaction.transaction_id}")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.error(f"Database error during transaction creation: {payload.transaction_id}")
+        raise HTTPException(status_code=500, detail="Database error during creation")
     db.refresh(transaction)
     return transaction
 
+
 def get_transaction_service(transaction_id: int, db: Session) -> TransactionOut:
+    logger.info(f"Fetching transaction: {transaction_id}")
     transaction = db.get(TransactionORM, transaction_id)
     if not transaction:
+        logger.warning(f"Transaction not found: {transaction_id}")
         raise HTTPException(status_code=404, detail="Transaction not found")
     return transaction
 
 def update_transaction_service(transaction_id: int, payload: TransactionUpdate, db: Session) -> TransactionOut:
+    logger.info(f"Updating transaction: {transaction_id}")
     transaction = db.get(TransactionORM, transaction_id)
-    if not transaction:
-        raise HTTPException(status_code=404, detail="Transaction not found")
-    if payload.user_id and not db.get(UserORM, payload.user_id):
-        raise HTTPException(status_code=404, detail="user_id does not exist")
-    if payload.merchant_id and not db.get(MerchantORM, payload.merchant_id):
-        raise HTTPException(status_code=404, detail="merchant_id does not exist")
+    validate_transaction_update(db, payload, transaction, transaction_id)
     for field, value in payload.dict(exclude_unset=True).items():
         setattr(transaction, field, value)
-    db.commit()
+    try:
+        db.commit()
+        logger.info(f"Transaction updated: {transaction_id}")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.error(f"Database error during transaction update: {transaction_id}")
+        raise HTTPException(status_code=500, detail="Database error during update")
     db.refresh(transaction)
     return transaction
 
+
 def delete_transaction_service(transaction_id: int, db: Session):
+    logger.info(f"Deleting transaction: {transaction_id}")
     transaction = db.get(TransactionORM, transaction_id)
     if not transaction:
+        logger.warning(f"Transaction not found for delete: {transaction_id}")
         raise HTTPException(status_code=404, detail="Transaction not found")
     db.delete(transaction)
-    db.commit()
+    try:
+        db.commit()
+        logger.info(f"Transaction deleted: {transaction_id}")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.error(f"Database error during transaction delete: {transaction_id}")
+        raise HTTPException(status_code=500, detail="Database error during delete")
 
 def list_transactions_service(
         db: Session,
@@ -68,9 +90,14 @@ def list_transactions_service(
         sort_by: str = "posted_at",
         sort_order: str = "desc"
 ) -> PaginatedTransactions:
+    logger.info(f"Listing transactions: user_id={user_id}, merchant_id={merchant_id}, category={category}, "
+                f"date_from={date_from}, date_to={date_to}, amount_min={amount_min}, amount_max={amount_max}, "
+                f"limit={limit}, offset={offset}, sort_by={sort_by}, sort_order={sort_order}")
     if user_id and not db.get(UserORM, user_id):
+        logger.warning(f"user_id does not exist for listing: {user_id}")
         raise HTTPException(status_code=404, detail="user_id does not exist")
     if merchant_id and not db.get(MerchantORM, merchant_id):
+        logger.warning(f"merchant_id does not exist for listing: {merchant_id}")
         raise HTTPException(status_code=404, detail="merchant_id does not exist")
     q = select(TransactionORM)
     count_q = select(func.count(TransactionORM.id))
@@ -97,9 +124,23 @@ def list_transactions_service(
     total_count = db.execute(count_q).scalar_one()
     q = q.offset(offset).limit(limit)
     items = db.execute(q).scalars().all()
+    logger.info(f"Transactions listed: count={len(items)}")
     return PaginatedTransactions(
         total_count=total_count,
         limit=limit,
         offset=offset,
         items=items
     )
+
+def delete_transaction_cascade(db, merchant, transactions):
+    logger.info(f"Deleting entity and cascading transactions: transaction_count={len(transactions)}")
+    for transaction in transactions:
+        db.delete(transaction)
+    db.delete(merchant)
+    try:
+        db.commit()
+        logger.info(f"Entity and related transactions deleted")
+    except SQLAlchemyError:
+        db.rollback()
+        logger.error(f"Database error during merchant cascade delete")
+        raise HTTPException(status_code=500, detail="Database error")
